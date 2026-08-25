@@ -27,8 +27,8 @@
   </section>
 
   <section>
-    <h2><button type="button" class="collapse" id="overlays-toggle" aria-expanded="true" aria-controls="overlays">Show on the map<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6l5 5 5-5"/></svg></button></h2>
-    <div class="checks" id="overlays">
+    <h2><button type="button" class="collapse" id="overlays-toggle" aria-expanded="false" aria-controls="overlays">Show on the map<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6l5 5 5-5"/></svg></button></h2>
+    <div class="checks collapsed" id="overlays">
       <label class="check"><input type="checkbox" id="ov-cities"><span class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></svg></span><span class="txt">Cities <span class="sub">Largest cities, marked with dots</span></span><span class="count" id="n-cities"></span></label>
       <label class="check"><input type="checkbox" id="ov-capitals"><span class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></svg></span><span class="txt">Capitals <span class="sub">National and state capitals, marked with stars</span></span><span class="count" id="n-capitals"></span></label>
       <label class="check"><input type="checkbox" id="ov-rivers"><span class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></svg></span><span class="txt">Rivers <span class="sub">Major named rivers</span></span><span class="count" id="n-rivers"></span></label>
@@ -36,6 +36,20 @@
       <label class="check"><input type="checkbox" id="ov-grid"><span class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></svg></span><span class="txt">Latitude &amp; longitude grid</span></label>
       <label class="check"><input type="checkbox" id="ov-labels"><span class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></svg></span><span class="txt">Labels <span class="sub">Print the names of everything shown</span></span></label>
       <label class="check"><input type="checkbox" id="ov-title" checked><span class="box"><svg viewBox="0 0 16 16"><path d="M3 8.5l3 3 7-7"/></svg></span><span class="txt">Title &amp; name line <span class="sub">Region name plus a Name / Date line for students</span></span></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Projection</h2>
+    <div class="field">
+      <select id="projection" aria-label="Map projection">
+        <option value="albers" selected>Albers equal-area conic</option>
+        <option value="lcc">Lambert conformal conic</option>
+        <option value="laea">Lambert azimuthal equal-area</option>
+        <option value="mercator">Mercator</option>
+        <option value="equirect">Equirectangular</option>
+      </select>
+      <p class="sub" id="projection-note"></p>
     </div>
   </section>
 

@@ -28,7 +28,15 @@
   }
   input[type=text]::placeholder{color:#98a7ab}
   input[type=text]:focus{border-color:var(--pencil);box-shadow:0 0 0 3px rgba(232,174,0,.25)}
-  button{font:inherit;cursor:pointer;border:0;border-radius:6px;padding:10px 14px;font-weight:600;transition:background .15s,transform .05s}
+  select{
+  width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:6px;
+  padding:9px 36px 9px 12px;font:inherit;font-size:14px;outline:none;appearance:none;-webkit-appearance:none;cursor:pointer;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3 6l5 5 5-5' fill='none' stroke='%2363757a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat:no-repeat;background-position:right 12px center;background-size:14px;
+}
+select:focus{border-color:var(--pencil);box-shadow:0 0 0 3px rgba(232,174,0,.25)}
+.field .sub{margin:0;font-size:12px;color:var(--muted);line-height:1.45}
+button{font:inherit;cursor:pointer;border:0;border-radius:6px;padding:10px 14px;font-weight:600;transition:background .15s,transform .05s}
   button:active{transform:translateY(1px)}
   button:focus-visible{outline:2px solid var(--pencil);outline-offset:2px}
   .primary{background:var(--pencil);color:#1c2426}

@@ -29,6 +29,7 @@
     rivers: null,          // [{name, lines:[[[lon,lat],...],...]}]
     subdiv: null,          // [{name, geometry}]
     orient: 'landscape',
+    projection: 'albers',
     weight: 3,
     nCities: 12,
     loading: new Set(),
@@ -464,12 +465,60 @@
   function sheetSize() {
     return state.orient === 'landscape' ? { w: inch(11), h: inch(8.5) } : { w: inch(8.5), h: inch(11) };
   }
+  // ---------------------------------------------------------------- projections (spherical formulas)
+  const PROJECTIONS = {
+    albers:   { name: 'Albers equal-area conic',     note: 'Keeps areas true. The standard choice for US state and national maps.' },
+    lcc:      { name: 'Lambert conformal conic',     note: 'Keeps shapes and angles true. Used by most road, weather, and aviation maps.' },
+    laea:     { name: 'Lambert azimuthal equal-area', note: 'Keeps areas true and looks balanced on big countries and continents.' },
+    mercator: { name: 'Mercator',                    note: 'The familiar web-map look. Shapes are right, but sizes swell toward the poles.' },
+    equirect: { name: 'Equirectangular',             note: 'Plain latitude/longitude grid with straight lines. Slightly stretched.' },
+  };
+  // Returns forward(lonDeg, latDeg) → [x, y] for the chosen projection, centred on the region
+  function forwardFor(key, b) {
+    const R = Math.PI / 180;
+    const lon0 = (b.minLon + b.maxLon) / 2 * R, lat0 = (b.minLat + b.maxLat) / 2 * R;
+    const d = (b.maxLat - b.minLat) / 6, p1 = (b.minLat + d) * R, p2 = (b.maxLat - d) * R;   // standard parallels at 1/6 and 5/6
+    const clamp = f => Math.max(-85 * R, Math.min(85 * R, f));
+    const mercator = (lon, lat) => [lon * R - lon0, Math.log(Math.tan(Math.PI / 4 + clamp(lat * R) / 2))];
+    switch (key) {
+      case 'albers': {
+        const n = (Math.sin(p1) + Math.sin(p2)) / 2;
+        if (Math.abs(n) < 1e-6) { const c = Math.cos(lat0); return (lon, lat) => [(lon * R - lon0) * c, Math.sin(lat * R) / c]; }  // straddles the equator: cylindrical equal-area
+        const C = Math.cos(p1) ** 2 + 2 * n * Math.sin(p1), rho0 = Math.sqrt(C - 2 * n * Math.sin(lat0)) / n;
+        return (lon, lat) => { const rho = Math.sqrt(Math.max(0, C - 2 * n * Math.sin(lat * R))) / n, th = n * (lon * R - lon0); return [rho * Math.sin(th), rho0 - rho * Math.cos(th)]; };
+      }
+      case 'lcc': {
+        const t = f => Math.tan(Math.PI / 4 + f / 2);
+        const n = Math.abs(p1 - p2) < 1e-9 ? Math.sin(p1) : Math.log(Math.cos(p1) / Math.cos(p2)) / Math.log(t(p2) / t(p1));
+        if (!isFinite(n) || Math.abs(n) < 1e-6) return mercator;
+        const F = Math.cos(p1) * Math.pow(t(p1), n) / n, rho0 = F / Math.pow(t(lat0), n);
+        return (lon, lat) => { const rho = F / Math.pow(t(clamp(lat * R)), n), th = n * (lon * R - lon0); return [rho * Math.sin(th), rho0 - rho * Math.cos(th)]; };
+      }
+      case 'laea':
+        return (lon, lat) => {
+          const f = lat * R, dl = lon * R - lon0;
+          const k = Math.sqrt(2 / Math.max(1e-9, 1 + Math.sin(lat0) * Math.sin(f) + Math.cos(lat0) * Math.cos(f) * Math.cos(dl)));
+          return [k * Math.cos(f) * Math.sin(dl), k * (Math.cos(lat0) * Math.sin(f) - Math.sin(lat0) * Math.cos(f) * Math.cos(dl))];
+        };
+      case 'mercator': return mercator;
+      default: { const c = Math.cos(lat0); return (lon, lat) => [(lon * R - lon0) * c, lat * R]; }
+    }
+  }
+  // Fit the projected outline into rect; returns xy(lon, lat) in sheet pixels plus the pixel scale at the centre
   function makeProjection(b, rect) {
-    const k = Math.cos((b.minLat + b.maxLat) / 2 * Math.PI / 180);
-    const dw = (b.maxLon - b.minLon) * k, dh = (b.maxLat - b.minLat);
+    const fwd = forwardFor(state.projection, b);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    eachRing(state.boundary, ring => ring.forEach(([lon, lat]) => {
+      const [x, y] = fwd(W(lon), lat);
+      if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }));
+    const dw = (maxX - minX) || 1e-9, dh = (maxY - minY) || 1e-9;
     const s = Math.min(rect.w / dw, rect.h / dh);
     const ox = rect.x + (rect.w - dw * s) / 2, oy = rect.y + (rect.h - dh * s) / 2;
-    return { s, k, xy: (lon, lat) => [ox + (W(lon) - b.minLon) * k * s, oy + (b.maxLat - lat) * s] };
+    const xy = (lon, lat) => { const [x, y] = fwd(W(lon), lat); return [ox + (x - minX) * s, oy + (maxY - y) * s]; };
+    const cLon = (b.minLon + b.maxLon) / 2, cLat = (b.minLat + b.maxLat) / 2;
+    const [x1, y1] = xy(cLon, cLat), [x2, y2] = xy(cLon, cLat + 0.1);
+    return { xy, pxPerDeg: Math.hypot(x2 - x1, y2 - y1) / 0.1 };
   }
   function tracePolygon(geom, proj) {
     ctx.beginPath();
@@ -569,18 +618,26 @@
       const step = [0.25, 0.5, 1, 2, 5, 10, 15, 20, 30].find(s => span / s <= 8) || 30;
       ctx.lineWidth = Math.max(1, lw * 0.18); ctx.setLineDash([pt(3), pt(3)]);
       ctx.font = fitFont(pt(7), 400, MONO); ctx.fillStyle = '#000';
-      for (let lon = Math.ceil(b.minLon / step) * step; lon <= b.maxLon; lon += step) {
-        const [x] = proj.xy(lon, b.minLat);
-        ctx.beginPath(); ctx.moveTo(x, frame.y); ctx.lineTo(x, frame.y + frame.h); ctx.stroke();
+      // sample each line so it curves correctly under conic and azimuthal projections; extend past the region to reach the frame
+      const lonA = Math.floor(b.minLon / step) * step - step, lonB = Math.ceil(b.maxLon / step) * step + step;
+      const latA = Math.max(-89, Math.floor(b.minLat / step) * step - step), latB = Math.min(89, Math.ceil(b.maxLat / step) * step + step);
+      const inFrame = ([x, y]) => x >= frame.x && x <= frame.x + frame.w && y >= frame.y + pt(4) && y <= frame.y + frame.h;
+      const polyline = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); };
+      const N = 48;
+      for (let lon = lonA; lon <= lonB + 1e-9; lon += step) {
+        const pts = []; for (let i = 0; i <= N; i++) pts.push(proj.xy(lon, latA + (latB - latA) * i / N));
+        polyline(pts);
+        const top = [...pts].reverse().find(inFrame); if (!top) continue;   // label where the meridian enters the top of the frame
         const real = lon > 180 ? lon - 360 : lon;
         ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        ctx.fillText(`${Math.abs(real)}°${real < 0 ? 'W' : real > 0 ? 'E' : ''}`, x, frame.y + pt(3));
+        ctx.fillText(`${Math.abs(real)}°${real < 0 ? 'W' : real > 0 ? 'E' : ''}`, top[0], frame.y + pt(3));
       }
-      for (let lat = Math.ceil(b.minLat / step) * step; lat <= b.maxLat; lat += step) {
-        const [, y] = proj.xy(b.minLon, lat);
-        ctx.beginPath(); ctx.moveTo(frame.x, y); ctx.lineTo(frame.x + frame.w, y); ctx.stroke();
+      for (let lat = Math.ceil(latA / step) * step; lat <= latB + 1e-9; lat += step) {
+        const pts = []; for (let i = 0; i <= N; i++) pts.push(proj.xy(lonA + (lonB - lonA) * i / N, lat));
+        polyline(pts);
+        const left = pts.find(inFrame); if (!left) continue;                // label where the parallel enters the left of the frame
         ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-        ctx.fillText(`${Math.abs(lat)}°${lat < 0 ? 'S' : lat > 0 ? 'N' : ''}`, frame.x + pt(3), y - pt(2));
+        ctx.fillText(`${Math.abs(lat)}°${lat < 0 ? 'S' : lat > 0 ? 'N' : ''}`, frame.x + pt(3), left[1] - pt(2));
       }
       ctx.setLineDash([]);
     }
@@ -711,7 +768,7 @@
 
     // --- scale bar
     {
-      const mPerPx = 111320 / proj.s;                 // metres per pixel at the map's centre latitude
+      const mPerPx = 111320 / proj.pxPerDeg;          // metres per pixel at the map's centre
       const km = nice(inch(1.8) * mPerPx / 1000);      // a round distance ~1.8 in long
       const barPx = km * 1000 / mPerPx, mi = km * 0.621371;
       const x = frame.x, y = frame.y + frame.h + inch(0.22);
@@ -725,7 +782,7 @@
       const ratio = mPerPx * DPI / 0.0254;
       const rounded = Number(ratio.toPrecision(2)).toLocaleString('en-US');
       ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-      ctx.fillText(`Scale 1 : ${rounded}`, frame.x + frame.w / 2, y + pt(4));
+      ctx.fillText(`Scale 1 : ${rounded}  ·  ${PROJECTIONS[state.projection].name} projection`, frame.x + frame.w / 2, y + pt(4));
       $('scale-out').textContent = `1 : ${rounded}`;
     }
     drawCredit(frame, h, margin);
@@ -786,6 +843,9 @@
     $('cities-field').classList.toggle('hidden', !ov.cities.checked);
     refreshOverlays();
   }));
+  const projNote = () => { $('projection-note').textContent = PROJECTIONS[state.projection].note; };
+  $('projection').addEventListener('change', e => { state.projection = e.target.value; projNote(); render(); });
+  projNote();
   $('weight').addEventListener('input', e => { state.weight = +e.target.value; $('weight-out').textContent = e.target.value; render(); });
   $('ncities').addEventListener('input', e => { state.nCities = +e.target.value; $('ncities-out').textContent = e.target.value; render(); });
   $('orient').addEventListener('click', e => {
